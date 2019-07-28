@@ -16,17 +16,20 @@ type cryptoStreamManager struct {
 
 	initialStream   cryptoStream
 	handshakeStream cryptoStream
+	oneRTTStream    cryptoStream
 }
 
 func newCryptoStreamManager(
 	cryptoHandler cryptoDataHandler,
 	initialStream cryptoStream,
 	handshakeStream cryptoStream,
+	oneRTTStream cryptoStream,
 ) *cryptoStreamManager {
 	return &cryptoStreamManager{
 		cryptoHandler:   cryptoHandler,
 		initialStream:   initialStream,
 		handshakeStream: handshakeStream,
+		oneRTTStream:    oneRTTStream,
 	}
 }
 
@@ -37,6 +40,8 @@ func (m *cryptoStreamManager) HandleCryptoFrame(frame *wire.CryptoFrame, encLeve
 		str = m.initialStream
 	case protocol.EncryptionHandshake:
 		str = m.handshakeStream
+	case protocol.Encryption1RTT:
+		str = m.oneRTTStream
 	default:
 		return false, fmt.Errorf("received CRYPTO frame with unexpected encryption level: %s", encLevel)
 	}

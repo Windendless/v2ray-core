@@ -13,6 +13,9 @@ const defaultMaxCongestionWindowPackets = 1000
 // DefaultMaxCongestionWindow is the default for the max congestion window
 const DefaultMaxCongestionWindow ByteCount = defaultMaxCongestionWindowPackets * DefaultTCPMSS
 
+// DefaultBBRMaxCongestionWindow is the default for the max congestion window in BBR algorithm
+const DefaultBBRMaxCongestionWindow ByteCount = 2000 * DefaultTCPMSS
+
 // InitialCongestionWindow is the initial congestion window in QUIC packets
 const InitialCongestionWindow ByteCount = 32 * DefaultTCPMSS
 
@@ -57,8 +60,11 @@ const MaxTrackedSkippedPackets = 10
 // If the queue is full, new connection attempts will be rejected.
 const MaxAcceptQueueSize = 32
 
-// CookieExpiryTime is the valid time of a cookie
-const CookieExpiryTime = 24 * time.Hour
+// TokenValidity is the duration that a (non-retry) token is considered valid
+const TokenValidity = 24 * time.Hour
+
+// RetryTokenValidity is the duration that a retry token is considered valid
+const RetryTokenValidity = 10 * time.Second
 
 // MaxOutstandingSentPackets is maximum number of packets saved for retransmission.
 // When reached, it imposes a soft limit on sending new packets:
@@ -73,8 +79,9 @@ const MaxTrackedSentPackets = MaxOutstandingSentPackets * 5 / 4
 // MaxTrackedReceivedAckRanges is the maximum number of ACK ranges tracked
 const MaxTrackedReceivedAckRanges = defaultMaxCongestionWindowPackets
 
-// MaxNonRetransmittableAcks is the maximum number of packets containing an ACK, but no retransmittable frames, that we send in a row
-const MaxNonRetransmittableAcks = 19
+// MaxNonAckElicitingAcks is the maximum number of packets containing an ACK,
+// but no ack-eliciting frames, that we send in a row
+const MaxNonAckElicitingAcks = 19
 
 // MaxStreamFrameSorterGaps is the maximum number of gaps between received StreamFrames
 // prevents DoS attacks against the streamFrameSorter
@@ -103,6 +110,10 @@ const RetiredConnectionIDDeleteTimeout = 5 * time.Second
 // 2. it reduces the head-of-line blocking, when a packet is lost
 const MinStreamFrameSize ByteCount = 128
 
+// MaxPostHandshakeCryptoFrameSize is the maximum size of CRYPTO frames
+// we send after the handshake completes.
+const MaxPostHandshakeCryptoFrameSize ByteCount = 1000
+
 // MaxAckFrameSize is the maximum size for an ACK frame that we write
 // Due to the varint encoding, ACK frames can grow (almost) indefinitely large.
 // The MaxAckFrameSize should be large enough to encode many ACK range,
@@ -117,3 +128,20 @@ const MinPacingDelay time.Duration = 100 * time.Microsecond
 // DefaultConnectionIDLength is the connection ID length that is used for multiplexed connections
 // if no other value is configured.
 const DefaultConnectionIDLength = 4
+
+// AckDelayExponent is the ack delay exponent used when sending ACKs.
+const AckDelayExponent = 3
+
+// Estimated timer granularity.
+// The loss detection timer will not be set to a value smaller than granularity.
+const TimerGranularity = time.Millisecond
+
+// MaxAckDelay is the maximum time by which we delay sending ACKs.
+const MaxAckDelay = 25 * time.Millisecond
+
+// MaxAckDelayInclGranularity is the max_ack_delay including the timer granularity.
+// This is the value that should be advertised to the peer.
+const MaxAckDelayInclGranularity = MaxAckDelay + TimerGranularity
+
+// KeyUpdateInterval is the maximum number of packets we send or receive before initiating a key udpate.
+const KeyUpdateInterval = 100 * 1000

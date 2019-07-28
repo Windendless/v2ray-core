@@ -1,7 +1,7 @@
 package quic
 
 import (
-	"v2ray.com/core/external/github.com/cheekybits/genny/generic"
+	"github.com/cheekybits/genny/generic"
 
 	"v2ray.com/core/external/github.com/lucas-clemente/quic-go/internal/protocol"
 )

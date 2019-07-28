@@ -5,6 +5,7 @@ import (
 
 	"v2ray.com/core/external/github.com/lucas-clemente/quic-go/internal/protocol"
 	"v2ray.com/core/external/github.com/lucas-clemente/quic-go/internal/wire"
+	"v2ray.com/core/external/github.com/lucas-clemente/quic-go/quictrace"
 )
 
 // SentPacketHandler handles ACKs received for outgoing packets
@@ -13,7 +14,8 @@ type SentPacketHandler interface {
 	SentPacket(packet *Packet)
 	SentPacketsAsRetransmission(packets []*Packet, retransmissionOf protocol.PacketNumber)
 	ReceivedAck(ackFrame *wire.AckFrame, withPacketNumber protocol.PacketNumber, encLevel protocol.EncryptionLevel, recvTime time.Time) error
-	SetHandshakeComplete()
+	DropPackets(protocol.EncryptionLevel)
+	ResetForRetry() error
 
 	// The SendMode determines if and what kind of packets can be sent.
 	SendMode() SendMode
@@ -32,17 +34,21 @@ type SentPacketHandler interface {
 	DequeuePacketForRetransmission() *Packet
 	DequeueProbePacket() (*Packet, error)
 
-	PeekPacketNumber() (protocol.PacketNumber, protocol.PacketNumberLen)
-	PopPacketNumber() protocol.PacketNumber
+	PeekPacketNumber(protocol.EncryptionLevel) (protocol.PacketNumber, protocol.PacketNumberLen)
+	PopPacketNumber(protocol.EncryptionLevel) protocol.PacketNumber
 
 	GetAlarmTimeout() time.Time
 	OnAlarm() error
+
+	// report some congestion statistics. For tracing only.
+	GetStats() *quictrace.TransportState
 }
 
 // ReceivedPacketHandler handles ACKs needed to send for incoming packets
 type ReceivedPacketHandler interface {
 	ReceivedPacket(pn protocol.PacketNumber, encLevel protocol.EncryptionLevel, rcvTime time.Time, shouldInstigateAck bool) error
 	IgnoreBelow(protocol.PacketNumber)
+	DropPackets(protocol.EncryptionLevel)
 
 	GetAlarmTimeout() time.Time
 	GetAckFrame(protocol.EncryptionLevel) *wire.AckFrame

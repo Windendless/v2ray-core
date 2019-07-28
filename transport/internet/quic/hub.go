@@ -25,7 +25,7 @@ type Listener struct {
 
 func (l *Listener) acceptStreams(session quic.Session) {
 	for {
-		stream, err := session.AcceptStream()
+		stream, err := session.AcceptStream(context.Background())
 		if err != nil {
 			newError("failed to accept stream").Base(err).WriteToLog()
 			select {
@@ -53,7 +53,7 @@ func (l *Listener) acceptStreams(session quic.Session) {
 
 func (l *Listener) keepAccepting() {
 	for {
-		conn, err := l.listener.Accept()
+		conn, err := l.listener.Accept(context.Background())
 		if err != nil {
 			newError("failed to accept QUIC sessions").Base(err).WriteToLog()
 			if l.done.Done() {

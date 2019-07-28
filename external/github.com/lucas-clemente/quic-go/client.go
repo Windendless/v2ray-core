@@ -3,13 +3,14 @@ package quic
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 
 	"v2ray.com/core/external/github.com/lucas-clemente/quic-go/internal/handshake"
 	"v2ray.com/core/external/github.com/lucas-clemente/quic-go/internal/protocol"
-	"v2ray.com/core/external/github.com/lucas-clemente/quic-go/internal/qerr"
 	"v2ray.com/core/external/github.com/lucas-clemente/quic-go/internal/utils"
 	"v2ray.com/core/external/github.com/lucas-clemente/quic-go/internal/wire"
 )
@@ -24,8 +25,6 @@ type client struct {
 
 	packetHandlers packetHandlerManager
 
-	token []byte
-
 	versionNegotiated                utils.AtomicBool // has the server accepted our version
 	receivedVersionNegotiationPacket bool
 	negotiatedVersions               []protocol.VersionNumber // the list of versions from the version negotiation packet
@@ -33,9 +32,8 @@ type client struct {
 	tlsConf *tls.Config
 	config  *Config
 
-	srcConnID      protocol.ConnectionID
-	destConnID     protocol.ConnectionID
-	origDestConnID protocol.ConnectionID // the destination conn ID used on the first Initial (before a Retry)
+	srcConnID  protocol.ConnectionID
+	destConnID protocol.ConnectionID
 
 	initialPacketNumber protocol.PacketNumber
 
@@ -123,8 +121,11 @@ func dialContext(
 	config *Config,
 	createdPacketConn bool,
 ) (Session, error) {
+	if tlsConf == nil || len(tlsConf.NextProtos) == 0 {
+		return nil, errors.New("quic: NextProtos not set in tls.Config")
+	}
 	config = populateClientConfig(config, createdPacketConn)
-	packetHandlers, err := getMultiplexer().AddConn(pconn, config.ConnectionIDLength)
+	packetHandlers, err := getMultiplexer().AddConn(pconn, config.ConnectionIDLength, config.StatelessResetKey)
 	if err != nil {
 		return nil, err
 	}
@@ -151,11 +152,16 @@ func newClient(
 		tlsConf = &tls.Config{}
 	}
 	if tlsConf.ServerName == "" {
-		var err error
-		tlsConf.ServerName, _, err = net.SplitHostPort(host)
-		if err != nil {
-			return nil, err
+		sni := host
+		if strings.IndexByte(sni, ':') != -1 {
+			var err error
+			sni, _, err = net.SplitHostPort(sni)
+			if err != nil {
+				return nil, err
+			}
 		}
+
+		tlsConf.ServerName = sni
 	}
 
 	// check that all versions are actually supported
@@ -244,6 +250,8 @@ func populateClientConfig(config *Config, createdPacketConn bool) *Config {
 		MaxIncomingStreams:                    maxIncomingStreams,
 		MaxIncomingUniStreams:                 maxIncomingUniStreams,
 		KeepAlive:                             config.KeepAlive,
+		StatelessResetKey:                     config.StatelessResetKey,
+		QuicTracer:                            config.QuicTracer,
 	}
 }
 
@@ -262,7 +270,7 @@ func (c *client) dial(ctx context.Context) error {
 
 // establishSecureConnection runs the session, and tries to establish a secure connection
 // It returns:
-// - errCloseSessionRecreating when the server sends a version negotiation packet, or a stateless retry is performed
+// - errCloseForRecreating when the server sends a version negotiation packet
 // - any other error that might occur
 // - when the connection is forward-secure
 func (c *client) establishSecureConnection(ctx context.Context) error {
@@ -271,7 +279,7 @@ func (c *client) establishSecureConnection(ctx context.Context) error {
 	go func() {
 		err := c.session.run() // returns as soon as the session is closed
 		if err != errCloseForRecreating && c.createdPacketConn {
-			c.conn.Close()
+			c.packetHandlers.Close()
 		}
 		errorChan <- err
 	}()
@@ -290,13 +298,8 @@ func (c *client) establishSecureConnection(ctx context.Context) error {
 }
 
 func (c *client) handlePacket(p *receivedPacket) {
-	if p.hdr.IsVersionNegotiation() {
-		go c.handleVersionNegotiationPacket(p.hdr)
-		return
-	}
-
-	if p.hdr.Type == protocol.PacketTypeRetry {
-		go c.handleRetryPacket(p.hdr)
+	if wire.IsVersionNegotiationPacket(p.data) {
+		go c.handleVersionNegotiationPacket(p)
 		return
 	}
 
@@ -309,9 +312,15 @@ func (c *client) handlePacket(p *receivedPacket) {
 	c.session.handlePacket(p)
 }
 
-func (c *client) handleVersionNegotiationPacket(hdr *wire.Header) {
+func (c *client) handleVersionNegotiationPacket(p *receivedPacket) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
+
+	hdr, _, _, err := wire.ParsePacket(p.data, 0)
+	if err != nil {
+		c.logger.Debugf("Error parsing Version Negotiation packet: %s", err)
+		return
+	}
 
 	// ignore delayed / duplicated version negotiation packets
 	if c.receivedVersionNegotiationPacket || c.versionNegotiated.Get() {
@@ -330,8 +339,8 @@ func (c *client) handleVersionNegotiationPacket(hdr *wire.Header) {
 	c.logger.Infof("Received a Version Negotiation packet. Supported Versions: %s", hdr.SupportedVersions)
 	newVersion, ok := protocol.ChooseSupportedVersion(c.config.Versions, hdr.SupportedVersions)
 	if !ok {
-		c.session.destroy(qerr.InvalidVersion)
-		c.logger.Debugf("No compatible version found.")
+		c.session.destroy(fmt.Errorf("No compatible QUIC version found. We support %s, server offered %s", c.config.Versions, hdr.SupportedVersions))
+		c.logger.Debugf("No compatible QUIC version found.")
 		return
 	}
 	c.receivedVersionNegotiationPacket = true
@@ -345,32 +354,6 @@ func (c *client) handleVersionNegotiationPacket(hdr *wire.Header) {
 	c.initialPacketNumber = c.session.closeForRecreating()
 }
 
-func (c *client) handleRetryPacket(hdr *wire.Header) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	c.logger.Debugf("<- Received Retry")
-	(&wire.ExtendedHeader{Header: *hdr}).Log(c.logger)
-	if !hdr.OrigDestConnectionID.Equal(c.destConnID) {
-		c.logger.Debugf("Ignoring spoofed Retry. Original Destination Connection ID: %s, expected: %s", hdr.OrigDestConnectionID, c.destConnID)
-		return
-	}
-	if hdr.SrcConnectionID.Equal(c.destConnID) {
-		c.logger.Debugf("Ignoring Retry, since the server didn't change the Source Connection ID.")
-		return
-	}
-	// If a token is already set, this means that we already received a Retry from the server.
-	// Ignore this Retry packet.
-	if len(c.token) > 0 {
-		c.logger.Debugf("Ignoring Retry, since a Retry was already received.")
-		return
-	}
-	c.origDestConnID = c.destConnID
-	c.destConnID = hdr.SrcConnectionID
-	c.token = hdr.Token
-	c.initialPacketNumber = c.session.closeForRecreating()
-}
-
 func (c *client) createNewTLSSession(version protocol.VersionNumber) error {
 	params := &handshake.TransportParameters{
 		InitialMaxStreamDataBidiRemote: protocol.InitialMaxStreamData,
@@ -378,23 +361,22 @@ func (c *client) createNewTLSSession(version protocol.VersionNumber) error {
 		InitialMaxStreamDataUni:        protocol.InitialMaxStreamData,
 		InitialMaxData:                 protocol.InitialMaxData,
 		IdleTimeout:                    c.config.IdleTimeout,
-		MaxBidiStreams:                 uint64(c.config.MaxIncomingStreams),
-		MaxUniStreams:                  uint64(c.config.MaxIncomingUniStreams),
+		MaxBidiStreamNum:               protocol.StreamNum(c.config.MaxIncomingStreams),
+		MaxUniStreamNum:                protocol.StreamNum(c.config.MaxIncomingUniStreams),
+		MaxAckDelay:                    protocol.MaxAckDelayInclGranularity,
+		AckDelayExponent:               protocol.AckDelayExponent,
 		DisableMigration:               true,
 	}
 
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	runner := &runner{
+		packetHandlerManager:    c.packetHandlers,
 		onHandshakeCompleteImpl: func(_ Session) { close(c.handshakeChan) },
-		retireConnectionIDImpl:  c.packetHandlers.Retire,
-		removeConnectionIDImpl:  c.packetHandlers.Remove,
 	}
 	sess, err := newClientSession(
 		c.conn,
 		runner,
-		c.token,
-		c.origDestConnID,
 		c.destConnID,
 		c.srcConnID,
 		c.config,
@@ -438,6 +420,6 @@ func (c *client) GetVersion() protocol.VersionNumber {
 	return v
 }
 
-func (c *client) GetPerspective() protocol.Perspective {
+func (c *client) getPerspective() protocol.Perspective {
 	return protocol.PerspectiveClient
 }

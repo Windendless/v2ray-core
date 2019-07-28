@@ -4,7 +4,6 @@ import (
 	"sync"
 
 	"v2ray.com/core/external/github.com/lucas-clemente/quic-go/internal/protocol"
-	"v2ray.com/core/common/bytespool"
 )
 
 type packetBuffer struct {
@@ -23,34 +22,54 @@ func (b *packetBuffer) Split() {
 	b.refCount++
 }
 
-// Release decreases the refCount.
-// It should be called when processing the packet is finished.
-// When the refCount reaches 0, the packet buffer is put back into the pool.
-func (b *packetBuffer) Release() {
-	if cap(b.Slice) < 2048 {
-		return
-	}
+// Decrement decrements the reference counter.
+// It doesn't put the buffer back into the pool.
+func (b *packetBuffer) Decrement() {
 	b.refCount--
 	if b.refCount < 0 {
 		panic("negative packetBuffer refCount")
 	}
+}
+
+// MaybeRelease puts the packet buffer back into the pool,
+// if the reference counter already reached 0.
+func (b *packetBuffer) MaybeRelease() {
 	// only put the packetBuffer back if it's not used any more
 	if b.refCount == 0 {
-		buffer := b.Slice[0:cap(b.Slice)]
-		bufferPool.Put(buffer)
+		b.putBack()
 	}
 }
 
-var bufferPool *sync.Pool
+// Release puts back the packet buffer into the pool.
+// It should be called when processing is definitely finished.
+func (b *packetBuffer) Release() {
+	b.Decrement()
+	if b.refCount != 0 {
+		panic("packetBuffer refCount not zero")
+	}
+	b.putBack()
+}
+
+func (b *packetBuffer) putBack() {
+	if cap(b.Slice) != int(protocol.MaxReceivePacketSize) {
+		panic("putPacketBuffer called with packet of wrong size!")
+	}
+	bufferPool.Put(b)
+}
+
+var bufferPool sync.Pool
 
 func getPacketBuffer() *packetBuffer {
-	buffer := bufferPool.Get().([]byte)
-	return &packetBuffer{
-		refCount: 1,
-		Slice:    buffer[:protocol.MaxReceivePacketSize],
-	}
+	buf := bufferPool.Get().(*packetBuffer)
+	buf.refCount = 1
+	buf.Slice = buf.Slice[:protocol.MaxReceivePacketSize]
+	return buf
 }
 
 func init() {
-	bufferPool = bytespool.GetPool(int32(protocol.MaxReceivePacketSize))
+	bufferPool.New = func() interface{} {
+		return &packetBuffer{
+			Slice: make([]byte, 0, protocol.MaxReceivePacketSize),
+		}
+	}
 }

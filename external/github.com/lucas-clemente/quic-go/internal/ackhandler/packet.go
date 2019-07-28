@@ -11,6 +11,7 @@ import (
 type Packet struct {
 	PacketNumber    protocol.PacketNumber
 	PacketType      protocol.PacketType
+	Ack             *wire.AckFrame
 	Frames          []wire.Frame
 	Length          protocol.ByteCount
 	EncryptionLevel protocol.EncryptionLevel
@@ -26,4 +27,13 @@ type Packet struct {
 	retransmittedAs         []protocol.PacketNumber
 	isRetransmission        bool // we need a separate bool here because 0 is a valid packet number
 	retransmissionOf        protocol.PacketNumber
+}
+
+func (p *Packet) ToPacket() *protocol.Packet {
+	return &protocol.Packet{
+		PacketNumber: p.PacketNumber,
+		PacketType:   p.PacketType,
+		Length:       p.Length,
+		SendTime:     p.SendTime,
+	}
 }
