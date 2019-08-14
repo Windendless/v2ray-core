@@ -14,6 +14,8 @@ rm ./github.com/lucas-clemente/quic-go/vendor/vendor.json
 
 rsync -rv "$GOPATH/src/github.com/golang/protobuf/" "./github.com/golang/protobuf/"
 
+rsync -rv "$GOPATH/src/github.com/marten-seemann/qtls/" "./github.com/marten-seemann/qtls/"
+
 rsync -rv "$GOPATH/src/github.com/gorilla/websocket/" "./github.com/gorilla/websocket/"
 rm -rf ./github.com/gorilla/websocket/\.*
 rm -rf ./github.com/gorilla/websocket/examples
