@@ -13,8 +13,8 @@ import (
 	"v2ray.com/core/external/github.com/lucas-clemente/quic-go/internal/qerr"
 	"v2ray.com/core/external/github.com/lucas-clemente/quic-go/internal/utils"
 
-	"github.com/marten-seemann/qtls"
 	"v2ray.com/core/external/github.com/lucas-clemente/quic-go/internal/protocol"
+	"v2ray.com/core/external/github.com/marten-seemann/qtls"
 )
 
 // By setting this environment variable, the key update interval can be adjusted.
@@ -91,14 +91,14 @@ func newUpdatableAEAD(rttStats *congestion.RTTStats, logger utils.Logger) *updat
 	}
 }
 
-func (a *updatableAEAD) rollKeys() {
+func (a *updatableAEAD) rollKeys(now time.Time) {
 	a.keyPhase++
 	a.firstRcvdWithCurrentKey = protocol.InvalidPacketNumber
 	a.firstSentWithCurrentKey = protocol.InvalidPacketNumber
 	a.numRcvdWithCurrentKey = 0
 	a.numSentWithCurrentKey = 0
 	a.prevRcvAEAD = a.rcvAEAD
-	a.prevRcvAEADExpiry = time.Now().Add(3 * a.rttStats.PTO())
+	a.prevRcvAEADExpiry = now.Add(3 * a.rttStats.PTO())
 	a.rcvAEAD = a.nextRcvAEAD
 	a.sendAEAD = a.nextSendAEAD
 
@@ -142,8 +142,8 @@ func (a *updatableAEAD) SetWriteKey(suite cipherSuite, trafficSecret []byte) {
 	a.nextSendAEAD = createAEAD(suite, a.nextSendTrafficSecret)
 }
 
-func (a *updatableAEAD) Open(dst, src []byte, pn protocol.PacketNumber, kp protocol.KeyPhaseBit, ad []byte) ([]byte, error) {
-	if a.prevRcvAEAD != nil && time.Now().After(a.prevRcvAEADExpiry) {
+func (a *updatableAEAD) Open(dst, src []byte, rcvTime time.Time, pn protocol.PacketNumber, kp protocol.KeyPhaseBit, ad []byte) ([]byte, error) {
+	if a.prevRcvAEAD != nil && rcvTime.After(a.prevRcvAEADExpiry) {
 		a.prevRcvAEAD = nil
 		a.prevRcvAEADExpiry = time.Time{}
 	}
@@ -175,7 +175,7 @@ func (a *updatableAEAD) Open(dst, src []byte, pn protocol.PacketNumber, kp proto
 		if a.firstSentWithCurrentKey == protocol.InvalidPacketNumber {
 			return nil, qerr.Error(qerr.ProtocolViolation, "keys updated too quickly")
 		}
-		a.rollKeys()
+		a.rollKeys(rcvTime)
 		a.logger.Debugf("Peer updated keys to %s", a.keyPhase)
 		a.firstRcvdWithCurrentKey = pn
 		return dec, err
@@ -232,7 +232,7 @@ func (a *updatableAEAD) shouldInitiateKeyUpdate() bool {
 
 func (a *updatableAEAD) KeyPhase() protocol.KeyPhaseBit {
 	if a.shouldInitiateKeyUpdate() {
-		a.rollKeys()
+		a.rollKeys(time.Now())
 	}
 	return a.keyPhase.Bit()
 }

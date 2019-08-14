@@ -4,9 +4,10 @@ import (
 	"crypto/tls"
 	"errors"
 	"io"
+	"time"
 
-	"github.com/marten-seemann/qtls"
 	"v2ray.com/core/external/github.com/lucas-clemente/quic-go/internal/protocol"
+	"v2ray.com/core/external/github.com/marten-seemann/qtls"
 )
 
 var (
@@ -34,7 +35,7 @@ type LongHeaderOpener interface {
 // ShortHeaderOpener opens a short header packet
 type ShortHeaderOpener interface {
 	headerDecryptor
-	Open(dst, src []byte, pn protocol.PacketNumber, kp protocol.KeyPhaseBit, associatedData []byte) ([]byte, error)
+	Open(dst, src []byte, rcvTime time.Time, pn protocol.PacketNumber, kp protocol.KeyPhaseBit, associatedData []byte) ([]byte, error)
 }
 
 // LongHeaderSealer seals a long header packet

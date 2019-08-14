@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/golang/protobuf/proto"
+	"v2ray.com/core/external/github.com/golang/protobuf/proto"
 
 	"v2ray.com/core/external/github.com/lucas-clemente/quic-go/internal/protocol"
 	"v2ray.com/core/external/github.com/lucas-clemente/quic-go/internal/wire"

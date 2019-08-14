@@ -7,15 +7,12 @@ rm -rf ./github.com/lucas-clemente/quic-go/\.*
 rm -rf ./github.com/lucas-clemente/quic-go/benchmark
 rm -rf ./github.com/lucas-clemente/quic-go/docs
 rm -rf ./github.com/lucas-clemente/quic-go/example
-rm -rf ./github.com/lucas-clemente/quic-go/h2quic
+rm -rf ./github.com/lucas-clemente/quic-go/http3
 rm -rf ./github.com/lucas-clemente/quic-go/integrationtests
 rm -rf ./github.com/lucas-clemente/quic-go/internal/mocks
 rm ./github.com/lucas-clemente/quic-go/vendor/vendor.json
 
-rsync -rv "./github.com/lucas-clemente/quic-go/vendor/github.com/cheekybits/" "./github.com/cheekybits/"
-rsync -rv "./github.com/lucas-clemente/quic-go/vendor/github.com/cloudflare/" "./github.com/cloudflare/"
-rsync -rv "./github.com/lucas-clemente/quic-go/vendor/github.com/marten-seemann/" "./github.com/marten-seemann/"
-rm -rf "./github.com/lucas-clemente/quic-go/vendor/"
+rsync -rv "$GOPATH/src/github.com/golang/protobuf/" "./github.com/golang/protobuf/"
 
 rsync -rv "$GOPATH/src/github.com/gorilla/websocket/" "./github.com/gorilla/websocket/"
 rm -rf ./github.com/gorilla/websocket/\.*

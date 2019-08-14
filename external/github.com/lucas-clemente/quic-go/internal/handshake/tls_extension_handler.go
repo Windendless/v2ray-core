@@ -1,8 +1,8 @@
 package handshake
 
 import (
-	"github.com/marten-seemann/qtls"
 	"v2ray.com/core/external/github.com/lucas-clemente/quic-go/internal/protocol"
+	"v2ray.com/core/external/github.com/marten-seemann/qtls"
 )
 
 const quicTLSExtensionType = 0xffa5
