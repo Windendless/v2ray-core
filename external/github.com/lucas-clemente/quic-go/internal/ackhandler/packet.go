@@ -10,14 +10,11 @@ import (
 // A Packet is a packet
 type Packet struct {
 	PacketNumber    protocol.PacketNumber
-	PacketType      protocol.PacketType
-	Ack             *wire.AckFrame
 	Frames          []wire.Frame
+	LargestAcked    protocol.PacketNumber // InvalidPacketNumber if the packet doesn't contain an ACK
 	Length          protocol.ByteCount
 	EncryptionLevel protocol.EncryptionLevel
 	SendTime        time.Time
-
-	largestAcked protocol.PacketNumber // if the packet contains an ACK, the LargestAcked value of that ACK
 
 	// There are two reasons why a packet cannot be retransmitted:
 	// * it was already retransmitted
@@ -32,7 +29,6 @@ type Packet struct {
 func (p *Packet) ToPacket() *protocol.Packet {
 	return &protocol.Packet{
 		PacketNumber: p.PacketNumber,
-		PacketType:   p.PacketType,
 		Length:       p.Length,
 		SendTime:     p.SendTime,
 	}

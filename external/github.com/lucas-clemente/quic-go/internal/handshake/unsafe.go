@@ -9,7 +9,7 @@ import (
 	"crypto/tls"
 	"reflect"
 
-	"github.com/marten-seemann/qtls"
+	"v2ray.com/core/external/github.com/marten-seemann/qtls"
 )
 
 func init() {

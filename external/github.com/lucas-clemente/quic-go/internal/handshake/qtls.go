@@ -8,7 +8,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/marten-seemann/qtls"
+	"v2ray.com/core/external/github.com/marten-seemann/qtls"
 )
 
 type cipherSuite interface {
@@ -64,9 +64,6 @@ func (c *clientSessionCache) Put(sessionKey string, cs *qtls.ClientSessionState)
 	// In order to allow users of quic-go to use a tls.Config,
 	// we need this workaround to use the ClientSessionCache.
 	// In unsafe.go we check that the two structs are actually identical.
-	if cs == nil {
-		return
-	}
 	usess := (*[unsafe.Sizeof(*cs)]byte)(unsafe.Pointer(cs))[:]
 	var session tls.ClientSessionState
 	usession := (*[unsafe.Sizeof(session)]byte)(unsafe.Pointer(&session))[:]
