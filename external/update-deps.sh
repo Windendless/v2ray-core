@@ -4,6 +4,8 @@ pushd $GOPATH/src/v2ray.com/core/external
 
 rsync -rv --delete "$GOPATH/src/github.com/golang/protobuf/" "./github.com/golang/protobuf/"
 rsync -rv --delete "$GOPATH/src/github.com/marten-seemann/qtls/" "./github.com/marten-seemann/qtls/"
+rsync -rv --delete "$GOPATH/src/github.com/marten-seemann/chacha20/" "./github.com/marten-seemann/chacha20/"
+
 
 rsync -rv --delete "$GOPATH/src/github.com/lucas-clemente/quic-go/" "./github.com/lucas-clemente/quic-go/"
 rm -rf ./github.com/lucas-clemente/quic-go/\.*
