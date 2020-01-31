@@ -23,21 +23,22 @@ import (
 const maxClientPSKIdentities = 5
 
 type serverHandshakeStateTLS13 struct {
-	c               *Conn
-	clientHello     *clientHelloMsg
-	hello           *serverHelloMsg
-	sentDummyCCS    bool
-	usingPSK        bool
-	suite           *cipherSuiteTLS13
-	cert            *Certificate
-	sigAlg          SignatureScheme
-	earlySecret     []byte
-	sharedKey       []byte
-	handshakeSecret []byte
-	masterSecret    []byte
-	trafficSecret   []byte // client_application_traffic_secret_0
-	transcript      hash.Hash
-	clientFinished  []byte
+	c                   *Conn
+	clientHello         *clientHelloMsg
+	hello               *serverHelloMsg
+	encryptedExtensions *encryptedExtensionsMsg
+	sentDummyCCS        bool
+	usingPSK            bool
+	suite               *cipherSuiteTLS13
+	cert                *Certificate
+	sigAlg              SignatureScheme
+	earlySecret         []byte
+	sharedKey           []byte
+	handshakeSecret     []byte
+	masterSecret        []byte
+	trafficSecret       []byte // client_application_traffic_secret_0
+	transcript          hash.Hash
+	clientFinished      []byte
 }
 
 func (hs *serverHandshakeStateTLS13) handshake() error {
@@ -85,6 +86,7 @@ func (hs *serverHandshakeStateTLS13) processClientHello() error {
 	c := hs.c
 
 	hs.hello = new(serverHelloMsg)
+	hs.encryptedExtensions = new(encryptedExtensionsMsg)
 
 	// TLS 1.3 froze the ServerHello.legacy_version field, and uses
 	// supported_versions instead. See RFC 8446, sections 4.1.3 and 4.2.1.
@@ -132,17 +134,6 @@ func (hs *serverHandshakeStateTLS13) processClientHello() error {
 	if len(hs.clientHello.secureRenegotiation) != 0 {
 		c.sendAlert(alertHandshakeFailure)
 		return errors.New("tls: initial handshake had non-empty renegotiation extension")
-	}
-
-	if hs.clientHello.earlyData {
-		// See RFC 8446, Section 4.2.10 for the complicated behavior required
-		// here. The scenario is that a different server at our address offered
-		// to accept early data in the past, which we can't handle. For now, all
-		// 0-RTT enabled session tickets need to expire before a Go server can
-		// replace a server or join a pool. That's the same requirement that
-		// applies to mixing or replacing with any TLS 1.2 server.
-		c.sendAlert(alertUnsupportedExtension)
-		return errors.New("tls: client sent unexpected early data")
 	}
 
 	hs.hello.sessionId = hs.clientHello.sessionId
@@ -226,6 +217,13 @@ GroupSelection:
 		c.config.ReceivedExtensions(typeClientHello, hs.clientHello.additionalExtensions)
 	}
 
+	if len(hs.clientHello.alpnProtocols) > 0 {
+		if selectedProto, fallback := mutualProtocol(hs.clientHello.alpnProtocols, c.config.NextProtos); !fallback {
+			hs.encryptedExtensions.alpnProtocol = selectedProto
+			c.clientProtocol = selectedProto
+		}
+	}
+
 	return nil
 }
 
@@ -267,6 +265,19 @@ func (hs *serverHandshakeStateTLS13) checkForResumption() error {
 		sessionState := new(sessionStateTLS13)
 		if ok := sessionState.unmarshal(plaintext); !ok {
 			continue
+		}
+
+		if hs.clientHello.earlyData {
+			if sessionState.maxEarlyData == 0 {
+				c.sendAlert(alertUnsupportedExtension)
+				return errors.New("tls: client sent unexpected early data")
+			}
+
+			if sessionState.alpn == c.clientProtocol &&
+				c.config.Accept0RTT != nil && c.config.Accept0RTT(sessionState.appData) {
+				hs.encryptedExtensions.earlyData = true
+				c.used0RTT = true
+			}
 		}
 
 		createdAt := time.Unix(int64(sessionState.createdAt), 0)
@@ -314,6 +325,17 @@ func (hs *serverHandshakeStateTLS13) checkForResumption() error {
 
 		if err := c.processCertsFromClient(sessionState.certificate); err != nil {
 			return err
+		}
+
+		h := cloneHash(hs.transcript, hs.suite.hash)
+		h.Write(hs.clientHello.marshal())
+		if sessionState.maxEarlyData > 0 && c.config.MaxEarlyData > 0 {
+			clientEarlySecret := hs.suite.deriveSecret(hs.earlySecret, "c e traffic", h)
+			c.in.exportKey(Encryption0RTT, hs.suite, clientEarlySecret)
+			if err := c.config.writeKeyLog(keyLogLabelEarlyTraffic, hs.clientHello.random, clientEarlySecret); err != nil {
+				c.sendAlert(alertInternalError)
+				return err
+			}
 		}
 
 		hs.hello.selectedIdentityPresent = true
@@ -466,6 +488,11 @@ func (hs *serverHandshakeStateTLS13) doHelloRetryRequest(selectedGroup CurveID) 
 		return errors.New("tls: client illegally modified second ClientHello")
 	}
 
+	if clientHello.earlyData {
+		c.sendAlert(alertIllegalParameter)
+		return errors.New("tls: client offered 0-RTT data in second ClientHello")
+	}
+
 	hs.clientHello = clientHello
 	return nil
 }
@@ -569,24 +596,16 @@ func (hs *serverHandshakeStateTLS13) sendServerParameters() error {
 		return err
 	}
 
-	encryptedExtensions := new(encryptedExtensionsMsg)
-
-	if len(hs.clientHello.alpnProtocols) > 0 {
-		if selectedProto, fallback := mutualProtocol(hs.clientHello.alpnProtocols, c.config.NextProtos); !fallback {
-			encryptedExtensions.alpnProtocol = selectedProto
-			c.clientProtocol = selectedProto
-		}
-	}
 	if c.config.EnforceNextProtoSelection && len(c.clientProtocol) == 0 {
 		c.sendAlert(alertNoApplicationProtocol)
 		return fmt.Errorf("ALPN negotiation failed. Client offered: %q", hs.clientHello.alpnProtocols)
 	}
 	if hs.c.config.GetExtensions != nil {
-		encryptedExtensions.additionalExtensions = hs.c.config.GetExtensions(typeEncryptedExtensions)
+		hs.encryptedExtensions.additionalExtensions = hs.c.config.GetExtensions(typeEncryptedExtensions)
 	}
 
-	hs.transcript.Write(encryptedExtensions.marshal())
-	if _, err := c.writeRecord(recordTypeHandshake, encryptedExtensions.marshal()); err != nil {
+	hs.transcript.Write(hs.encryptedExtensions.marshal())
+	if _, err := c.writeRecord(recordTypeHandshake, hs.encryptedExtensions.marshal()); err != nil {
 		return err
 	}
 
@@ -744,40 +763,20 @@ func (hs *serverHandshakeStateTLS13) sendSessionTickets() error {
 		return nil
 	}
 
-	resumptionSecret := hs.suite.deriveSecret(hs.masterSecret,
+	c.resumptionSecret = hs.suite.deriveSecret(hs.masterSecret,
 		resumptionLabel, hs.transcript)
 
 	// Don't send session tickets when the alternative record layer is set.
 	// Instead, save the resumption secret on the Conn.
 	// Session tickets can then be generated by calling Conn.GetSessionTicket().
 	if hs.c.config.AlternativeRecordLayer != nil {
-		c.resumptionSecret = resumptionSecret
 		return nil
 	}
 
-	m := new(newSessionTicketMsgTLS13)
-
-	var certsFromClient [][]byte
-	for _, cert := range c.peerCertificates {
-		certsFromClient = append(certsFromClient, cert.Raw)
-	}
-	state := sessionStateTLS13{
-		cipherSuite:      hs.suite.id,
-		createdAt:        uint64(c.config.time().Unix()),
-		resumptionSecret: resumptionSecret,
-		certificate: Certificate{
-			Certificate:                 certsFromClient,
-			OCSPStaple:                  c.ocspResponse,
-			SignedCertificateTimestamps: c.scts,
-		},
-	}
-	var err error
-	m.label, err = c.encryptTicket(state.marshal())
+	m, err := hs.c.getSessionTicketMsg(nil)
 	if err != nil {
 		return err
 	}
-	m.lifetime = uint32(maxSessionTicketLifetime / time.Second)
-
 	if _, err := c.writeRecord(recordTypeHandshake, m.marshal()); err != nil {
 		return err
 	}

@@ -115,6 +115,7 @@ type EncryptionLevel uint8
 
 const (
 	EncryptionHandshake EncryptionLevel = iota
+	Encryption0RTT
 	EncryptionApplication
 )
 
@@ -242,6 +243,8 @@ type ConnectionState struct {
 	VerifiedChains              [][]*x509.Certificate // verified chains built from PeerCertificates
 	SignedCertificateTimestamps [][]byte              // SCTs from the peer, if any
 	OCSPResponse                []byte                // stapled OCSP response from peer, if any
+
+	Used0RTT bool // true if 0-RTT was both offered and accepted
 
 	// ekm is a closure exposed via ExportKeyingMaterial.
 	ekm func(label string, context []byte, length int) ([]byte, error)
@@ -600,8 +603,32 @@ type Config struct {
 	// If enabled, client and server have to agree on an application protocol.
 	// Otherwise, connection establishment fails.
 	EnforceNextProtoSelection bool
+
+	// If MaxEarlyData is greater than 0, the client will be allowed to send early
+	// data when resuming a session.
+	// Requires the AlternativeRecordLayer to be set.
+	//
+	// It has no meaning on the client.
+	MaxEarlyData uint32
+
+	// The Accept0RTT callback is called when the client offers 0-RTT.
+	// The server then has to decide if it wants to accept or reject 0-RTT.
+	// It is only used for servers.
+	Accept0RTT func(appData []byte) bool
+
+	// 0RTTRejected is called when the server rejectes 0-RTT.
+	// It is only used for clients.
+	Rejected0RTT func()
+
+	// If set, the client will export the 0-RTT key when resuming a session that
+	// allows sending of early data.
+	// Requires the AlternativeRecordLayer to be set.
+	//
+	// It has no meaning to the server.
+	Enable0RTT bool
 }
 
+// A RecordLayer handles encrypting and decrypting of TLS messages.
 type RecordLayer interface {
 	SetReadKey(encLevel EncryptionLevel, suite *CipherSuiteTLS13, trafficSecret []byte)
 	SetWriteKey(encLevel EncryptionLevel, suite *CipherSuiteTLS13, trafficSecret []byte)
@@ -680,6 +707,10 @@ func (c *Config) Clone() *Config {
 		ReceivedExtensions:          c.ReceivedExtensions,
 		sessionTicketKeys:           sessionTicketKeys,
 		EnforceNextProtoSelection:   c.EnforceNextProtoSelection,
+		MaxEarlyData:                c.MaxEarlyData,
+		Enable0RTT:                  c.Enable0RTT,
+		Accept0RTT:                  c.Accept0RTT,
+		Rejected0RTT:                c.Rejected0RTT,
 	}
 }
 
@@ -958,6 +989,7 @@ func (c *Config) BuildNameToCertificate() {
 
 const (
 	keyLogLabelTLS12           = "CLIENT_RANDOM"
+	keyLogLabelEarlyTraffic    = "CLIENT_EARLY_TRAFFIC_SECRET"
 	keyLogLabelClientHandshake = "CLIENT_HANDSHAKE_TRAFFIC_SECRET"
 	keyLogLabelServerHandshake = "SERVER_HANDSHAKE_TRAFFIC_SECRET"
 	keyLogLabelClientTraffic   = "CLIENT_TRAFFIC_SECRET_0"

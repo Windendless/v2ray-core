@@ -9,6 +9,7 @@ import (
 	"crypto"
 	"crypto/hmac"
 	"crypto/rsa"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"hash"
@@ -250,6 +251,11 @@ func (hs *clientHandshakeStateTLS13) processHelloRetryRequest() error {
 		}
 	}
 
+	hs.hello.earlyData = false // disable 0-RTT
+	if c.config.Rejected0RTT != nil {
+		c.config.Rejected0RTT()
+	}
+
 	hs.transcript.Write(hs.hello.marshal())
 	if _, err := c.writeRecord(recordTypeHandshake, hs.hello.marshal()); err != nil {
 		return err
@@ -406,6 +412,11 @@ func (hs *clientHandshakeStateTLS13) readServerParameters() error {
 		}
 	}
 	c.clientProtocol = encryptedExtensions.alpnProtocol
+	// Notify the caller if 0-RTT was rejected.
+	if !encryptedExtensions.earlyData && hs.hello.earlyData && c.config.Rejected0RTT != nil {
+		c.config.Rejected0RTT()
+	}
+	c.used0RTT = encryptedExtensions.earlyData
 
 	return nil
 }
@@ -667,6 +678,15 @@ func (c *Conn) handleNewSessionTicket(msg *newSessionTicketMsgTLS13) error {
 		return c.sendAlert(alertInternalError)
 	}
 
+	// We need to save the max_early_data_size that the server sent us, in order
+	// to decide if we're going to try 0-RTT with this ticket.
+	// However, at the same time, the qtls.ClientSessionTicket needs to be equal to
+	// the tls.ClientSessionTicket, so we can't just add a new field to the struct.
+	// We therefore abuse the nonce field (which is a byte slice)
+	nonceWithEarlyData := make([]byte, len(msg.nonce)+4)
+	binary.BigEndian.PutUint32(nonceWithEarlyData, msg.maxEarlyData)
+	copy(nonceWithEarlyData[4:], msg.nonce)
+
 	// Save the resumption_master_secret and nonce instead of deriving the PSK
 	// to do the least amount of work on NewSessionTicket messages before we
 	// know if the ticket will be used. Forward secrecy of resumed connections
@@ -679,7 +699,7 @@ func (c *Conn) handleNewSessionTicket(msg *newSessionTicketMsgTLS13) error {
 		serverCertificates: c.peerCertificates,
 		verifiedChains:     c.verifiedChains,
 		receivedAt:         c.config.time(),
-		nonce:              msg.nonce,
+		nonce:              nonceWithEarlyData,
 		useBy:              c.config.time().Add(lifetime),
 		ageAdd:             msg.ageAdd,
 	}
