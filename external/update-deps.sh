@@ -15,6 +15,7 @@ rm -rf ./github.com/lucas-clemente/quic-go/example
 rm -rf ./github.com/lucas-clemente/quic-go/http3
 rm -rf ./github.com/lucas-clemente/quic-go/integrationtests
 rm -rf ./github.com/lucas-clemente/quic-go/internal/mocks
+rm -rf ./github.com/lucas-clemente/quic-go//interop
 rm ./github.com/lucas-clemente/quic-go/vendor/vendor.json
 
 rsync -rv "$GOPATH/src/github.com/gorilla/websocket/" "./github.com/gorilla/websocket/"
