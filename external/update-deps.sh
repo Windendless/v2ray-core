@@ -15,28 +15,11 @@ rm -rf ./github.com/lucas-clemente/quic-go/example
 rm -rf ./github.com/lucas-clemente/quic-go/http3
 rm -rf ./github.com/lucas-clemente/quic-go/integrationtests
 rm -rf ./github.com/lucas-clemente/quic-go/internal/mocks
-rm -rf ./github.com/lucas-clemente/quic-go//interop
-rm ./github.com/lucas-clemente/quic-go/vendor/vendor.json
-
-rsync -rv "$GOPATH/src/github.com/gorilla/websocket/" "./github.com/gorilla/websocket/"
-rm -rf ./github.com/gorilla/websocket/\.*
-rm -rf ./github.com/gorilla/websocket/examples
-rm "./github.com/gorilla/websocket/.gitignore"
-rm "./github.com/gorilla/websocket/client_clone_legacy.go"
-rm "./github.com/gorilla/websocket/compression.go"
-rm "./github.com/gorilla/websocket/conn_write_legacy.go"
-rm "./github.com/gorilla/websocket/json.go"
-rm "./github.com/gorilla/websocket/prepared.go"
-rm "./github.com/gorilla/websocket/proxy.go"
-rm "./github.com/gorilla/websocket/trace_17.go"
-rm "./github.com/gorilla/websocket/trace.go"
-rm "./github.com/gorilla/websocket/x_net_proxy.go"
-
-rsync -rv "$GOPATH/src/github.com/refraction-networking/utls/" "./github.com/refraction-networking/utls/"
-rm -rf ./github.com/refraction-networking/utls/\.*
-rm -rf ./github.com/refraction-networking/utls/examples
-rm -rf ./github.com/refraction-networking/utls/testdata
-rm -rf ./github.com/refraction-networking/utls/testenv
+rm -rf ./github.com/lucas-clemente/quic-go/interop
+rm -rf ./github.com/lucas-clemente/quic-go/fuzzing
+rm -rf ./github.com/lucas-clemente/quic-go/internal/testutils/
+rm -rf ./github.com/lucas-clemente/quic-go/quictrace
+rm -rf ./github.com/lucas-clemente/quic-go/internal/testdata
 
 
 find . -name ".git" -delete
