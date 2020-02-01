@@ -18,7 +18,6 @@ rm -rf ./github.com/lucas-clemente/quic-go/internal/mocks
 rm -rf ./github.com/lucas-clemente/quic-go/interop
 rm -rf ./github.com/lucas-clemente/quic-go/fuzzing
 rm -rf ./github.com/lucas-clemente/quic-go/internal/testutils/
-rm -rf ./github.com/lucas-clemente/quic-go/quictrace
 rm -rf ./github.com/lucas-clemente/quic-go/internal/testdata
 
 
